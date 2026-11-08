@@ -1,8 +1,12 @@
 import express from 'express'
  import 'dotenv/config' 
-
+import cors from "cors"
 const app = express()
 const PORT = 8000
+
+
+app.use(cors())
+app.use(express.json())
 
 
 import { MongoClient } from 'mongodb';
@@ -19,7 +23,30 @@ export async function connectToMongoDB() {
   }
 }
 
-connectToMongoDB()
+const mongoClient= await connectToMongoDB();
+
+const db = mongoClient.db("studioSpace")
+const studioCollection = db.collection("studio")
+
+
+
+
+
+
+app.post('/add-studio', async (req,res)=>{
+    const data = req.body
+
+    const result = await studioCollection.insertOne(data)
+    console.log(result);
+    res.send({result})
+})
+
+
+app.get('/studios',async(req,res)=>{
+    const result = await studioCollection.find().toArray()
+    res.send(result)
+})
+
 
 
 
