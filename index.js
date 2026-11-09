@@ -9,7 +9,7 @@ app.use(cors())
 app.use(express.json())
 
 
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 const client = new MongoClient(process.env.MONGODB_URL);
 
@@ -47,7 +47,14 @@ app.get('/studios',async(req,res)=>{
     res.send(result)
 })
 
+app.get('/studios/:id', async (req, res) => {
 
+    const {id}=req.params
+    const result = await studioCollection.findOne({_id: new ObjectId(id)})
+    res.send(result)
+})
+
+    
 
 
 app.get('/',(req,res)=>{
