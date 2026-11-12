@@ -34,10 +34,27 @@ const bookingCollection = db.collection("bookings")
 
 
 
+const verifyToken = async (req, res, next) => {
+const authHeader = req.headers.authorization;
+if (!authHeader) {
+return res.status(401).send({ msg: "Unauthorized!" });
+}
+const token = authHeader.split(" ")[1];
+if (!token) {
+return res.status(401).send({ msg: "Unauthorized!" });
+}
 
 
-app.post("/add-studio", async (req, res) => {
+next();
+
+};
+
+
+
+
+app.post("/add-studio",verifyToken, async (req, res) => {
   try {
+    
     const data = req.body
 
     const result = await studioCollection.insertOne({
@@ -73,7 +90,7 @@ app.get('/studios/:id',  async (req, res) => {
 
 
 
-app.post("/booking", async (req, res) => {
+app.post("/booking",verifyToken, async (req, res) => {
   try {
     const { studioId, bookingDate, startTime, endTime, message } = req.body;
 
@@ -152,7 +169,7 @@ app.post("/booking", async (req, res) => {
 
 
 
-app.get("/my-bookings", async (req, res) => {
+app.get("/my-bookings",verifyToken, async (req, res) => {
   const email = req.query.email
   const bookings = await bookingCollection
     .find({ customerEmail: email })
@@ -168,7 +185,7 @@ app.get("/my-bookings", async (req, res) => {
 
 
 
-app.patch("/bookings/:id/cancel", async (req, res) => {
+app.patch("/bookings/:id/cancel", verifyToken, async (req, res) => {
   const { id } = req.params
   const { customerEmail } = req.body
 
@@ -192,7 +209,7 @@ app.patch("/bookings/:id/cancel", async (req, res) => {
 })
 
 
-app.delete("/bookings/:id", async (req, res) => {
+app.delete("/bookings/:id",verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { email } = req.query;
@@ -226,7 +243,7 @@ app.delete("/bookings/:id", async (req, res) => {
 
 
 
-app.get("/my-listings", async (req, res) => {
+app.get("/my-listings",verifyToken, async (req, res) => {
   try {
     const ownerEmail = req.query.email
 
@@ -258,7 +275,7 @@ app.get("/my-listings", async (req, res) => {
 })
 
 
-app.delete("/my-listings/:id", async (req, res) => {
+app.delete("/my-listings/:id",verifyToken, async (req, res) => {
   try {
     const { id } = req.params
     const ownerEmail = req.query.email
@@ -287,7 +304,7 @@ app.delete("/my-listings/:id", async (req, res) => {
 
 
 
-app.patch("/studios/:id", async (req, res) => {
+app.patch("/studios/:id",verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const email = req.user.email;
@@ -360,7 +377,7 @@ app.get("/host-bookings", async (req, res) => {
 
 
 
-app.patch("/bookings/:id/:action", async (req, res) => {
+app.patch("/bookings/:id/:action",verifyToken, async (req, res) => {
   try {
     const { id, action } = req.params;
     const email = req.user.email;
