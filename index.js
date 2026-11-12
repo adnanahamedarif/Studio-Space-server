@@ -2,6 +2,7 @@ import express from 'express'
  import 'dotenv/config' 
 import cors from "cors"
 import { MongoClient, ObjectId } from "mongodb"
+import { createLocalJWKSet, createRemoteJWKSet, jwtVerify } from 'jose'
 
 
 const app = express()
@@ -33,43 +34,68 @@ const bookingCollection = db.collection("bookings")
 
 
 
-
 const verifyToken = async (req, res, next) => {
-const authHeader = req.headers.authorization;
-if (!authHeader) {
-return res.status(401).send({ msg: "Unauthorized!" });
-}
-const token = authHeader.split(" ")[1];
-if (!token) {
-return res.status(401).send({ msg: "Unauthorized!" });
-}
+  const authHeader = req.headers.authorization;
 
+  if (!authHeader) {
+    return res.status(401).send({
+      message: "Unauthorized! Token is missing.",
+    });
+  }
 
-next();
+  const token = authHeader.split(" ")[1];
 
+  if (!token) {
+    return res.status(401).send({
+      message: "Unauthorized! Invalid token.",
+    });
+  }
+
+  try {
+    const JWKS = createRemoteJWKSet(
+      new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
+    );
+
+    const { payload } = await jwtVerify(token, JWKS);
+
+    req.user = payload;
+
+    next();
+
+  } catch (error) {
+    console.log("JWT Verification Error:", error);
+
+    return res.status(401).send({
+      message: "Invalid or expired token.",
+    });
+  }
 };
 
 
-
-
-app.post("/add-studio",verifyToken, async (req, res) => {
+app.post("/add-studio", verifyToken, async (req, res) => {
   try {
-    
-    const data = req.body
+    const data = req.body;
 
     const result = await studioCollection.insertOne({
       ...data,
-      createdAt: new Date()
-    })
+      ownerEmail: req.user.email,
+      createdAt: new Date(),
+    });
+
+    res.status(201).send({
+      success: true,
+      message: "Studio added successfully!",
+      insertedId: result.insertedId,
+    });
+
   } catch (error) {
-    console.log(error)
+    console.log("Add Studio Error:", error);
 
     res.status(500).send({
-      success: false,
-      message: "Failed to add studio"
-    })
+      message: "Failed to add studio",
+    });
   }
-})
+});
 
 
 
@@ -169,18 +195,29 @@ app.post("/booking",verifyToken, async (req, res) => {
 
 
 
-app.get("/my-bookings",verifyToken, async (req, res) => {
-  const email = req.query.email
-  const bookings = await bookingCollection
-    .find({ customerEmail: email })
-    .sort({ createdAt: -1 })
-    .toArray()
+app.get("/my-bookings", verifyToken, async (req, res) => {
+  try {
+    const email = req.user.email;
 
-  res.send({
-    success: true,
-    bookings
-  })
-})
+    const bookings = await bookingCollection
+      .find({ customerEmail: email })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.status(200).send({
+      success: true,
+      bookings,
+    });
+
+  } catch (error) {
+    console.log("My Bookings Error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to load bookings",
+    });
+  }
+});
 
 
 
@@ -242,37 +279,28 @@ app.delete("/bookings/:id",verifyToken, async (req, res) => {
 
 
 
-
-app.get("/my-listings",verifyToken, async (req, res) => {
+app.get("/my-listings", verifyToken, async (req, res) => {
   try {
-    const ownerEmail = req.query.email
-
-    if (!ownerEmail) {
-      return res.status(400).send({
-        success: false,
-        message: "Owner email is required"
-      })
-    }
+    const ownerEmail = req.user.email;
 
     const studios = await studioCollection
-      .find({ ownerEmail: ownerEmail })
+      .find({ ownerEmail })
       .sort({ _id: -1 })
-      .toArray()
+      .toArray();
 
-    res.send({
+    res.status(200).send({
       success: true,
-      studios: studios
-    })
+      studios,
+    });
 
   } catch (error) {
-    console.log(error)
+    console.log("My Listings Error:", error);
 
     res.status(500).send({
-      success: false,
-      message: "Failed to load studio listings"
-    })
+      message: "Failed to load studio listings",
+    });
   }
-})
+});
 
 
 app.delete("/my-listings/:id",verifyToken, async (req, res) => {
@@ -344,13 +372,16 @@ app.patch("/studios/:id",verifyToken, async (req, res) => {
   }
 });
 
-app.get("/host-bookings", async (req, res) => {
+app.get("/host-bookings", verifyToken, async (req, res) => {
   try {
     const { studioId } = req.query;
     const email = req.user.email;
 
-    if (!ObjectId.isValid(studioId)) {
-      return res.status(400).send({ message: "Invalid studio ID" });
+    if (!studioId || !ObjectId.isValid(studioId)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid studio ID",
+      });
     }
 
     const studio = await studioCollection.findOne({
@@ -359,18 +390,32 @@ app.get("/host-bookings", async (req, res) => {
     });
 
     if (!studio) {
-      return res.status(404).send({ message: "Studio not found" });
+      return res.status(404).send({
+        success: false,
+        message: "Studio not found",
+      });
     }
 
     const bookings = await bookingCollection
-      .find({ studioId, hostEmail: email })
+      .find({
+        studioId: studioId,
+        hostEmail: email,
+      })
       .sort({ createdAt: -1 })
       .toArray();
 
-    res.send({ success: true, bookings });
+    res.status(200).send({
+      success: true,
+      bookings,
+    });
 
   } catch (error) {
-    res.status(500).send({ message: "Failed to load bookings" });
+    console.log("Host Bookings Error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to load bookings",
+    });
   }
 });
 
