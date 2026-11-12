@@ -36,7 +36,7 @@ const bookingCollection = db.collection("bookings")
 
 
 
-app.post("/add-studio",verifyToken, async (req, res) => {
+app.post("/add-studio", async (req, res) => {
   try {
     const data = req.body
 
@@ -74,102 +74,80 @@ app.get('/studios/:id',  async (req, res) => {
 
 
 app.post("/booking", async (req, res) => {
-  const {
-    studioId,
-    customerEmail,
-    bookingDate,
-    startTime,
-    endTime,
-    message
-  } = req.body
-  const studio = await studioCollection.findOne({
-    _id: new ObjectId(studioId)
-  })
+  try {
+    const { studioId, bookingDate, startTime, endTime, message } = req.body;
 
-  const start = startTime.split(":").map(Number)
-  const end = endTime.split(":").map(Number)
+    if (!ObjectId.isValid(studioId)) {
+      return res.status(400).send({ message: "Invalid studio ID" });
+    }
 
-  const startMinutes = start[0] * 60 + start[1]
-  const endMinutes = end[0] * 60 + end[1]
+    const studio = await studioCollection.findOne({
+      _id: new ObjectId(studioId),
+    });
 
-  if (
-    !/^\d{2}:\d{2}$/.test(startTime) ||
-    !/^\d{2}:\d{2}$/.test(endTime) ||
-    start[0] > 23 || start[1] > 59 ||
-    end[0] > 23 || end[1] > 59 ||
-    endMinutes <= startMinutes
-  ) {
-    return res.status(400).send({
-      success: false,
-      message: "Invalid booking time"
-    })
+    if (!studio) {
+      return res.status(404).send({ message: "Studio not found" });
+    }
+
+    const start = startTime.split(":").map(Number);
+    const end = endTime.split(":").map(Number);
+
+    const totalHours =
+      ((end[0] * 60 + end[1]) - (start[0] * 60 + start[1])) / 60;
+
+    if (
+      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(startTime) ||
+      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(endTime) ||
+      totalHours <= 0
+    ) {
+      return res.status(400).send({ message: "Invalid booking time" });
+    }
+
+    const existingBooking = await bookingCollection.findOne({
+      studioId,
+      bookingDate,
+      status: "Confirmed",
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime },
+    });
+
+    if (existingBooking) {
+      return res.status(409).send({ message: "Time slot already booked" });
+    }
+
+    const bookingData = {
+      studioId,
+      studioTitle: studio.title,
+      studioImage: studio.images?.[0] || "",
+      location: studio.location,
+      customerEmail: req.user.email,
+      hostEmail: studio.ownerEmail,
+      bookingDate,
+      startTime,
+      endTime,
+      totalHours,
+      hourlyRate: Number(studio.hourlyRate),
+      securityDeposit: Number(studio.securityDeposit),
+      totalPrice:
+        Number(studio.hourlyRate) * totalHours +
+        Number(studio.securityDeposit),
+      message: message || "",
+      status: "Pending",
+      createdAt: new Date(),
+    };
+
+    const result = await bookingCollection.insertOne(bookingData);
+
+    res.status(201).send({
+      success: true,
+      bookingId: result.insertedId,
+      message: "Booking successful!",
+    });
+
+  } catch (error) {
+    res.status(500).send({ message: "Booking failed" });
   }
-
-  const totalHours = (endMinutes - startMinutes) / 60
-
-  const hourlyRate = Number(studio.hourlyRate)
-  const securityDeposit = Number(studio.securityDeposit)
-
-  if (
-    !Number.isFinite(hourlyRate) ||
-    !Number.isFinite(securityDeposit) ||
-    hourlyRate < 0 ||
-    securityDeposit < 0
-  ) {
-    return res.status(400).send({
-      success: false,
-      message: "Invalid studio price"
-    })
-  }
-
-  // Check confirmed booking overlap
-  const existingBooking = await bookingCollection.findOne({
-    studioId: studioId,
-    bookingDate: bookingDate,
-    status: "Confirmed",
-    startTime: { $lt: endTime },
-    endTime: { $gt: startTime }
-  })
-
-  if (existingBooking) {
-    return res.status(409).send({
-      success: false,
-      message: "This time slot is already booked"
-    })
-  }
-
-  const bookingData = {
-    studioId: studioId,
-    studioTitle: studio.title,
-    studioImage: studio.images?.[0] || "",
-    location: studio.location,
-
-    customerEmail,
-    hostEmail: studio.ownerEmail || "",
-
-    bookingDate,
-    startTime,
-    endTime,
-    totalHours,
-
-    hourlyRate,
-    securityDeposit,
-    totalPrice: hourlyRate * totalHours + securityDeposit,
-
-    message: message || "",
-    status: "Pending",
-    createdAt: new Date()
-  }
-
-  const result = await bookingCollection.insertOne(bookingData)
-
-  res.status(201).send({
-    success: true,
-    message: "Booking request submitted successfully!",
-    bookingId: result.insertedId
-  })
-})
-
+});
 
 
 
@@ -309,14 +287,111 @@ app.delete("/my-listings/:id", async (req, res) => {
 
 
 
+app.patch("/studios/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const email = req.user.email;
+
+    const {
+      title, category, location, hourlyRate, securityDeposit,
+      capacity, images, amenities, description
+    } = req.body;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid ID" });
+    }
+
+    if (!email) {
+      return res.status(401).send({ message: "Unauthorized" });
+    }
+
+    const result = await studioCollection.updateOne(
+      { _id: new ObjectId(id), ownerEmail: email },
+      {
+        $set: {
+          title, category, location, hourlyRate, securityDeposit,
+          capacity, images, amenities, description,
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({ message: "Studio not found" });
+    }
+
+    res.send({ success: true, message: "Studio updated successfully!" });
+
+  } catch (error) {
+    res.status(500).send({ message: "Failed to update studio" });
+  }
+});
+
+app.get("/host-bookings", async (req, res) => {
+  try {
+    const { studioId } = req.query;
+    const email = req.user.email;
+
+    if (!ObjectId.isValid(studioId)) {
+      return res.status(400).send({ message: "Invalid studio ID" });
+    }
+
+    const studio = await studioCollection.findOne({
+      _id: new ObjectId(studioId),
+      ownerEmail: email,
+    });
+
+    if (!studio) {
+      return res.status(404).send({ message: "Studio not found" });
+    }
+
+    const bookings = await bookingCollection
+      .find({ studioId, hostEmail: email })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.send({ success: true, bookings });
+
+  } catch (error) {
+    res.status(500).send({ message: "Failed to load bookings" });
+  }
+});
 
 
 
 
+app.patch("/bookings/:id/:action", async (req, res) => {
+  try {
+    const { id, action } = req.params;
+    const email = req.user.email;
 
+    if (!ObjectId.isValid(id) || !["approve", "reject"].includes(action)) {
+      return res.status(400).send({ message: "Invalid request" });
+    }
 
+    const result = await bookingCollection.updateOne(
+      {
+        _id: new ObjectId(id),
+        hostEmail: email,
+        status: "Pending",
+      },
+      {
+        $set: {
+          status: action === "approve" ? "Confirmed" : "Cancelled",
+        },
+      }
+    );
 
+    if (!result.modifiedCount) {
+      return res.status(404).send({ message: "Booking not found" });
+    }
 
+    res.send({ success: true, message: "Booking updated successfully!" });
+
+  } catch (error) {
+    res.status(500).send({ message: "Failed to update booking" });
+  }
+});
 
 
 
