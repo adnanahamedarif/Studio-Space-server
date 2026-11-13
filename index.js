@@ -196,27 +196,17 @@ app.post("/booking",verifyToken, async (req, res) => {
 
 
 app.get("/my-bookings", verifyToken, async (req, res) => {
-  try {
-    const email = req.user.email;
+  const email = req.user.email;
 
-    const bookings = await bookingCollection
-      .find({ customerEmail: email })
-      .sort({ createdAt: -1 })
-      .toArray();
+  const bookings = await bookingCollection
+    .find({ customerEmail: email })
+    .sort({ createdAt: -1 })
+    .toArray();
 
-    res.status(200).send({
-      success: true,
-      bookings,
-    });
-
-  } catch (error) {
-    console.log("My Bookings Error:", error);
-
-    res.status(500).send({
-      success: false,
-      message: "Failed to load bookings",
-    });
-  }
+  res.status(200).send({
+    success: true,
+    bookings,
+  });
 });
 
 
@@ -280,179 +270,130 @@ app.delete("/bookings/:id",verifyToken, async (req, res) => {
 
 
 app.get("/my-listings", verifyToken, async (req, res) => {
-  try {
-    const ownerEmail = req.user.email;
+  const ownerEmail = req.user.email;
 
-    const studios = await studioCollection
-      .find({ ownerEmail })
-      .sort({ _id: -1 })
-      .toArray();
+  const studios = await studioCollection
+    .find({ ownerEmail })
+    .sort({ _id: -1 })
+    .toArray();
 
-    res.status(200).send({
-      success: true,
-      studios,
-    });
-
-  } catch (error) {
-    console.log("My Listings Error:", error);
-
-    res.status(500).send({
-      message: "Failed to load studio listings",
-    });
-  }
+  res.status(200).send({
+    success: true,
+    studios,
+  });
 });
 
 
-app.delete("/my-listings/:id",verifyToken, async (req, res) => {
-  try {
-    const { id } = req.params
-    const ownerEmail = req.query.email
+app.delete("/my-listings/:id", verifyToken, async (req, res) => {
+  const id = req.params.id
+  const email = req.user.email
 
+  const result = await studioCollection.deleteOne({
+    _id: new ObjectId(id),
+    ownerEmail: email,
+  })
 
-    const result = await studioCollection.deleteOne({
-      _id: new ObjectId(id),
-      ownerEmail: ownerEmail
-    })
-
-    res.send({
-      success: true,
-      message: "Studio deleted successfully!"
-    })
-
-  } catch (error) {
-    console.log(error)
-
-    res.status(500).send({
-      success: false,
-      message: "Failed to delete studio"
-    })
-  }
+  res.send({
+    success: result.deletedCount > 0,
+    message: "Studio deleted successfully!",
+  })
 })
 
 
 
 
-app.patch("/studios/:id",verifyToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const email = req.user.email;
+app.patch("/studios/:id", verifyToken, async (req, res) => {
+  const { id } = req.params;
+  const email = req.user.email;
 
-    const {
-      title, category, location, hourlyRate, securityDeposit,
-      capacity, images, amenities, description
-    } = req.body;
+  const {
+    title,
+    category,
+    location,
+    hourlyRate,
+    securityDeposit,
+    capacity,
+    images,
+    amenities,
+    description,
+  } = req.body;
 
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).send({ message: "Invalid ID" });
+  const result = await studioCollection.updateOne(
+    {
+      _id: new ObjectId(id),
+      ownerEmail: email,
+    },
+    {
+      $set: {
+        title,
+        category,
+        location,
+        hourlyRate,
+        securityDeposit,
+        capacity,
+        images,
+        amenities,
+        description,
+        updatedAt: new Date(),
+      },
     }
+  );
 
-    if (!email) {
-      return res.status(401).send({ message: "Unauthorized" });
-    }
-
-    const result = await studioCollection.updateOne(
-      { _id: new ObjectId(id), ownerEmail: email },
-      {
-        $set: {
-          title, category, location, hourlyRate, securityDeposit,
-          capacity, images, amenities, description,
-          updatedAt: new Date()
-        }
-      }
-    );
-
-    if (result.matchedCount === 0) {
-      return res.status(404).send({ message: "Studio not found" });
-    }
-
-    res.send({ success: true, message: "Studio updated successfully!" });
-
-  } catch (error) {
-    res.status(500).send({ message: "Failed to update studio" });
-  }
+  res.send({
+    success: result.modifiedCount > 0,
+    message: "Studio updated successfully!",
+  });
 });
+
+
+
 
 app.get("/host-bookings", verifyToken, async (req, res) => {
-  try {
-    const { studioId } = req.query;
-    const email = req.user.email;
+  const { studioId } = req.query;
+  const email = req.user.email;
 
-    if (!studioId || !ObjectId.isValid(studioId)) {
-      return res.status(400).send({
-        success: false,
-        message: "Invalid studio ID",
-      });
-    }
+  const studio = await studioCollection.findOne({
+    _id: new ObjectId(studioId),
+    ownerEmail: email,
+  });
 
-    const studio = await studioCollection.findOne({
-      _id: new ObjectId(studioId),
-      ownerEmail: email,
-    });
+  const bookings = await bookingCollection
+    .find({
+      studioId: studioId,
+      hostEmail: email,
+    })
+    .sort({ createdAt: -1 })
+    .toArray();
 
-    if (!studio) {
-      return res.status(404).send({
-        success: false,
-        message: "Studio not found",
-      });
-    }
-
-    const bookings = await bookingCollection
-      .find({
-        studioId: studioId,
-        hostEmail: email,
-      })
-      .sort({ createdAt: -1 })
-      .toArray();
-
-    res.status(200).send({
-      success: true,
-      bookings,
-    });
-
-  } catch (error) {
-    console.log("Host Bookings Error:", error);
-
-    res.status(500).send({
-      success: false,
-      message: "Failed to load bookings",
-    });
-  }
+  res.status(200).send({
+    success: true,
+    bookings,
+  });
 });
 
 
 
+app.patch("/bookings/:id/:action", verifyToken, async (req, res) => {
+  const { id, action } = req.params;
+  const email = req.user.email;
 
-app.patch("/bookings/:id/:action",verifyToken, async (req, res) => {
-  try {
-    const { id, action } = req.params;
-    const email = req.user.email;
-
-    if (!ObjectId.isValid(id) || !["approve", "reject"].includes(action)) {
-      return res.status(400).send({ message: "Invalid request" });
-    }
-
-    const result = await bookingCollection.updateOne(
-      {
-        _id: new ObjectId(id),
-        hostEmail: email,
-        status: "Pending",
+  const result = await bookingCollection.updateOne(
+    {
+      _id: new ObjectId(id),
+      hostEmail: email,
+      status: "Pending",
+    },
+    {
+      $set: {
+        status: action === "approve" ? "Confirmed" : "Cancelled",
       },
-      {
-        $set: {
-          status: action === "approve" ? "Confirmed" : "Cancelled",
-        },
-      }
-    );
-
-    if (!result.modifiedCount) {
-      return res.status(404).send({ message: "Booking not found" });
     }
+  );
 
-    res.send({ success: true, message: "Booking updated successfully!" });
-
-  } catch (error) {
-    res.status(500).send({ message: "Failed to update booking" });
-  }
+  res.send({
+    success: result.modifiedCount > 0,
+    message: "Booking updated successfully!",
+  });
 });
 
 
@@ -466,3 +407,6 @@ app.get('/',(req,res)=>{
 app.listen(PORT,()=>{
     console.log(`Server is running at ${PORT}`);
 })
+
+
+export default app
